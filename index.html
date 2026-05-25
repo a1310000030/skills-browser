@@ -2525,9 +2525,9 @@ function generatePrompt() {
     if (selected.size === 1) {
       prompt = `用${titles[0]}帮我...`;
     } else {
-      prompt = '我需要一个专家团队协作：
+      prompt = `我需要一个专家团队协作：
 
-';
+`;
       let i = 1;
       selected.forEach(slug => {
         const card = document.querySelector(`.card[data-slug="${slug}"]`);
@@ -2537,8 +2537,8 @@ function generatePrompt() {
 `;
         i++;
       });
-      prompt += '
-请各位专家从各自专业角度协同完成任务。';
+      prompt += `
+请各位专家从各自专业角度协同完成任务。`;
     }
   } else {
     // Full team mode with task
@@ -2560,8 +2560,8 @@ ${task}
 `;
       i++;
     });
-    prompt += '
-请各位专家从各自专业角度给出建议，整合成一份可执行的方案。';
+    prompt += `
+请各位专家从各自专业角度给出建议，整合成一份可执行的方案。`;
   }
   
   document.getElementById('generatedPrompt').textContent = prompt;
