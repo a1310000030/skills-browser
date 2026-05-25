@@ -2822,6 +2822,10 @@ function downloadAllSkills() {
   document.body.removeChild(a);
   setTimeout(function() { btn.textContent = '📦 下载全部技能'; }, 2000);
 }
+
+// Init: detect server
+checkServer();
+setInterval(checkServer, 30000);  // re-check every 30s
 </script>
 </body>
 </html>
