@@ -111,6 +111,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .chat-input::placeholder{color:#555}
 .chat-send-btn{width:36px;height:36px;border-radius:50%;background:#6366f1;color:#fff;border:none;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
 .chat-send-btn:hover{background:#818cf8;transform:scale(1.05)}
+.server-status{display:flex;align-items:center;gap:6px;font-size:10px;padding:2px 0;margin-top:2px}
+.server-dot{width:6px;height:6px;border-radius:50%}
+.server-dot.on{background:#22c55e;box-shadow:0 0 6px #22c55e}
+.server-dot.off{background:#666}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid #6366f1;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;margin-right:6px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.chat-bubble.loading{opacity:0.7}
+.chat-bubble.user{background:#6366f115;border:1px solid #6366f133;align-self:flex-end;color:#c0c0d0;max-width:85%}
 .sidebar-divider{height:1px;background:#2a2a3a;margin:12px 16px}
 .preset-section{padding:8px 16px 12px}
 .preset-section h3{font-size:12px;color:#666;margin-bottom:8px;font-weight:400;letter-spacing:1px}
@@ -2381,6 +2389,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   <button class="chat-send-btn" onclick="sendChat()">➤</button>
   <button class="btn btn-outline" onclick="clearTeam()">清空</button>
 </div>
+<div class="server-status" id="serverStatus"><span class="server-dot off"></span>检测中...</div>
 </div>
 <button class="back-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
 
@@ -2577,109 +2586,167 @@ function clearTeam() {
   selected.clear();
   document.querySelectorAll('.card.selected').forEach(c => c.classList.remove('selected'));
   document.getElementById('chatArea').innerHTML = '';
+  chatHistory = [];
   updateTeamPanel();
 }
 
+// Server detection
+let serverAvailable = false;
+const SERVER_URL = 'http://localhost:8765';
+let chatHistory = [];
+
+async function checkServer() {
+  try {
+    const resp = await fetch(SERVER_URL + '/health');
+    const data = await resp.json();
+    serverAvailable = data.status === 'ok';
+  } catch(e) {
+    serverAvailable = false;
+  }
+  updateServerUI();
+}
+
+function updateServerUI() {
+  const el = document.getElementById('serverStatus');
+  if (!el) return;
+  if (serverAvailable) {
+    el.innerHTML = '<span class="server-dot on"></span>AI已连接';
+    el.style.color = '#22c55e';
+  } else {
+    el.innerHTML = '<span class="server-dot off"></span>离线模式（生成Prompt）';
+    el.style.color = '#666';
+  }
+}
+
 // Send chat message
-function sendChat() {
+async function sendChat() {
   if (selected.size === 0) return;
   const input = document.getElementById('chatInput');
   const task = input.value.trim();
+  if (!task) return;
   input.value = '';
-  
-  // Generate prompt
-  const prompt = buildPrompt(task);
-  
-  // Create chat bubble
+
   const chatArea = document.getElementById('chatArea');
-  const bubble = document.createElement('div');
-  bubble.className = 'chat-bubble assistant';
-  
-  // Escape HTML in prompt
-  const escaped = prompt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  bubble.innerHTML = escaped + '<button class="copy-chat-btn" onclick="copyChatBubble(this)">📋 复制</button>';
-  chatArea.appendChild(bubble);
+
+  // Show user bubble
+  const userBubble = document.createElement('div');
+  userBubble.className = 'chat-bubble user';
+  userBubble.textContent = task;
+  chatArea.appendChild(userBubble);
+
+  if (serverAvailable) {
+    // Real AI mode
+    const loadingBubble = document.createElement('div');
+    loadingBubble.className = 'chat-bubble assistant loading';
+    loadingBubble.innerHTML = '<span class="spinner"></span>专家团队思考中...';
+    loadingBubble.id = 'loadingBubble';
+    chatArea.appendChild(loadingBubble);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    try {
+      const systemPrompt = buildSystemPrompt();
+      const resp = await fetch(SERVER_URL + '/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system: systemPrompt,
+          message: task,
+          history: chatHistory
+        })
+      });
+      const data = await resp.json();
+
+      // Remove loading
+      loadingBubble.remove();
+
+      if (data.reply) {
+        chatHistory.push({ role: 'user', content: task });
+        chatHistory.push({ role: 'assistant', content: data.reply });
+        // Keep last 20 turns
+        if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+
+        const aiBubble = document.createElement('div');
+        aiBubble.className = 'chat-bubble assistant';
+        const escaped = data.reply.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        aiBubble.innerHTML = escaped + '<button class="copy-chat-btn" onclick="copyChatBubble(this)">📋 复制</button>';
+        chatArea.appendChild(aiBubble);
+      } else {
+        const errBubble = document.createElement('div');
+        errBubble.className = 'chat-bubble assistant';
+        errBubble.innerHTML = '❌ ' + (data.error || 'AI 响应异常，请重试') + '<button class="copy-chat-btn" onclick="copyChatBubble(this)">📋 复制</button>';
+        chatArea.appendChild(errBubble);
+      }
+    } catch(e) {
+      loadingBubble.remove();
+      const errBubble = document.createElement('div');
+      errBubble.className = 'chat-bubble assistant';
+      errBubble.innerHTML = '❌ 连接失败，请确认后端服务已启动（python server.py）<button class="copy-chat-btn" onclick="copyChatBubble(this)">📋 复制</button>';
+      chatArea.appendChild(errBubble);
+    }
+  } else {
+    // Fallback: generate prompt for copy
+    const prompt = buildPrompt(task);
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble assistant';
+    const escaped = prompt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    bubble.innerHTML = '<div style="color:#888;font-size:10px;margin-bottom:6px">💡 未连接AI服务，以下为生成的Prompt，请复制到AI工具中使用</div>' + escaped + '<button class="copy-chat-btn" onclick="copyChatBubble(this)">📋 复制</button>';
+    chatArea.appendChild(bubble);
+  }
+
   chatArea.scrollTop = chatArea.scrollHeight;
 }
 
+// Build system prompt from selected experts
+function buildSystemPrompt() {
+  let sys = '你是一个AI专家团队，需要协作回答用户的问题。请综合以下所有专家的专业知识给出全面、可执行的方案。\n\n【专家团队成员】\n\n';
+  let i = 1;
+  selected.forEach(slug => {
+    const card = document.querySelector(`.card[data-slug="${slug}"]`);
+    const title = card ? card.dataset.title : slug;
+    const persona = getPersona(slug);
+    sys += `${i}. 【${title}】\n${persona || (card ? card.querySelector('.desc').textContent : '')}\n\n`;
+    i++;
+  });
+  sys += '请综合以上专家的知识，用中文给出专业回答。';
+  return sys;
+}
+
 function copyChatBubble(btn) {
-  const text = btn.parentElement.textContent.replace('📋 复制', '').trim();
+  const parent = btn.parentElement;
+  // Get text content excluding the button
+  const clone = parent.cloneNode(true);
+  const btns = clone.querySelectorAll('.copy-chat-btn, .server-status');
+  btns.forEach(b => b.remove());
+  const text = clone.textContent.trim();
   navigator.clipboard.writeText(text).then(() => {
     btn.textContent = '✅ 已复制';
     setTimeout(() => { btn.textContent = '📋 复制'; }, 2000);
   });
 }
 
-// Build prompt with full personas
+// Build prompt for fallback copy mode
 function buildPrompt(task) {
   let prompt = '';
-
-  if (selected.size === 1 && task === '') {
-    const slug = [...selected][0];
-    const card = document.querySelector(`.card[data-slug="${slug}"]`);
-    const title = card ? card.dataset.title : slug;
-    const persona = getPersona(slug);
-    if (persona) {
-      prompt = `【角色设定】
-${persona}
-
-【任务】
-请帮我...`;
-    } else {
-      prompt = `用${title}帮我...`;
-    }
-  } else if (selected.size === 1 && task !== '') {
+  if (selected.size === 1) {
     const slug = [...selected][0];
     const persona = getPersona(slug);
     if (persona) {
-      prompt = `【角色设定】
-${persona}
-
-【我的需求】
-${task}
-
-请以该专家的专业视角分析和解决上述问题。`;
+      prompt = `【角色设定】\n${persona}\n\n【我的需求】\n${task}\n\n请以该专家的专业视角分析和解决上述问题。`;
     } else {
       prompt = `帮我完成以下任务：${task}`;
     }
-  } else if (task === '') {
-    prompt = `我需要一个专家团队协作：
-
-`;
-    let i = 1;
-    selected.forEach(slug => {
-      const card = document.querySelector(`.card[data-slug="${slug}"]`);
-      const title = card ? card.dataset.title : slug;
-      const persona = getPersona(slug);
-      prompt += `【${i}. ${title}】
-${persona || (card ? card.querySelector('.desc').textContent : '')}
-
-`;
-      i++;
-    });
-    prompt += `请各位专家从各自专业角度协同完成任务。`;
   } else {
-    prompt = `我需要一个专家团队协作完成以下任务：
-
-【我的需求】
-${task}
-
-【专家团队】
-`;
+    prompt = `我需要一个专家团队协作完成以下任务：\n\n【我的需求】\n${task}\n\n【专家团队】\n`;
     let i = 1;
     selected.forEach(slug => {
       const card = document.querySelector(`.card[data-slug="${slug}"]`);
       const title = card ? card.dataset.title : slug;
       const persona = getPersona(slug);
-      prompt += `【${i}. ${title}】
-${persona || (card ? card.querySelector('.desc').textContent : '')}
-
-`;
+      prompt += `【${i}. ${title}】\n${persona || (card ? card.querySelector('.desc').textContent : '')}\n\n`;
       i++;
     });
     prompt += `请各位专家从各自专业角度给出建议，整合成一份可执行的方案。`;
   }
-
   return prompt;
 }
 
