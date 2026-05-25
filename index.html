@@ -100,6 +100,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .top-bar{flex-direction:column;align-items:flex-start}
 }
 .btn-download{display:flex;align-items:center;gap:6px;font-size:12px;padding:8px 14px;border-radius:8px;border:1px solid #22c55e;background:transparent;color:#22c55e;cursor:pointer;font-weight:600;transition:all .2s;white-space:nowrap}.btn-download:hover{background:#22c55e15;transform:translateY(-1px)}
+.chat-area{max-height:400px;overflow-y:auto;padding:8px 0;display:flex;flex-direction:column;gap:8px}
+.chat-bubble{max-width:100%;padding:12px 14px;border-radius:12px;font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-all;position:relative}
+.chat-bubble.assistant{background:#1e1e2e;border:1px solid #2a2a3a;align-self:flex-start;color:#c0c0d0}
+.chat-bubble .copy-chat-btn{position:absolute;top:6px;right:8px;font-size:11px;background:#6366f1;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;opacity:0.8;transition:opacity .2s}
+.chat-bubble .copy-chat-btn:hover{opacity:1}
+.chat-input-row{display:flex;gap:8px;align-items:center;padding-top:4px}
+.chat-input{flex:1;background:#1a1a24;border:1px solid #3a3a4a;border-radius:10px;padding:10px 14px;color:#e0e0e0;font-size:13px;outline:none;font-family:inherit;transition:border-color .2s}
+.chat-input:focus{border-color:#6366f1}
+.chat-input::placeholder{color:#555}
+.chat-send-btn{width:36px;height:36px;border-radius:50%;background:#6366f1;color:#fff;border:none;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+.chat-send-btn:hover{background:#818cf8;transform:scale(1.05)}
 .sidebar-divider{height:1px;background:#2a2a3a;margin:12px 16px}
 .preset-section{padding:8px 16px 12px}
 .preset-section h3{font-size:12px;color:#666;margin-bottom:8px;font-weight:400;letter-spacing:1px}
@@ -2364,23 +2375,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 <div class="team-panel" id="teamPanel">
 <span class="count-badge">已选 <strong id="teamCount">0</strong> 个专家</span>
 <div class="team-tags" id="teamTags"></div>
-<div class="team-actions">
-<button class="btn btn-outline" onclick="clearTeam()">清空</button>
-<button class="btn btn-primary" onclick="openModal()">⚡ 生成团队指令</button>
-</div>
-</div>
-<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
-<div class="modal" id="modal">
-<h2>⚡ 生成团队协作指令</h2>
-<p class="subtitle">将下面的指令复制粘贴到 WorkBuddy 对话中，你的专家团队就会一起工作</p>
-<div class="team-list" id="modalTeamList"></div>
-<label>描述你的任务需求（可选）</label>
-<textarea id="taskInput" placeholder="例如：帮我制定一套抖音账号30天涨粉到20万的完整方案，包括内容策略、发布时间、互动玩法..."></textarea>
-<div class="generated-prompt" id="generatedPrompt"></div>
-<div class="btn-row">
-<button class="btn btn-outline" onclick="closeModal()">关闭</button>
-<button class="btn btn-primary" id="copyBtn" onclick="copyPrompt()">📋 复制指令</button>
-</div>
+<div class="chat-area" id="chatArea"></div>
+<div class="chat-input-row">
+  <input type="text" class="chat-input" id="chatInput" placeholder="输入你的需求，AI专家团队帮你解决..." onkeydown="if(event.key==='Enter')sendChat()">
+  <button class="chat-send-btn" onclick="sendChat()">➤</button>
+  <button class="btn btn-outline" onclick="clearTeam()">清空</button>
 </div>
 </div>
 <button class="back-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
@@ -2580,40 +2579,41 @@ function clearTeam() {
   updateTeamPanel();
 }
 
-// Open modal
-function openModal() {
+// Send chat message
+function sendChat() {
   if (selected.size === 0) return;
+  const input = document.getElementById('chatInput');
+  const task = input.value.trim();
+  input.value = '';
   
-  // Build team list
-  const modalList = document.getElementById('modalTeamList');
-  modalList.innerHTML = '';
-  selected.forEach(slug => {
-    const card = document.querySelector(`.card[data-slug="${slug}"]`);
-    const title = card ? card.dataset.title : slug;
-    const pill = document.createElement('span');
-    pill.className = 'pill';
-    pill.textContent = title;
-    modalList.appendChild(pill);
+  // Generate prompt
+  const prompt = buildPrompt(task);
+  
+  // Create chat bubble
+  const chatArea = document.getElementById('chatArea');
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble assistant';
+  
+  // Escape HTML in prompt
+  const escaped = prompt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  bubble.innerHTML = escaped + '<button class="copy-chat-btn" onclick="copyChatBubble(this)">📋 复制</button>';
+  chatArea.appendChild(bubble);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function copyChatBubble(btn) {
+  const text = btn.parentElement.textContent.replace('📋 复制', '').trim();
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✅ 已复制';
+    setTimeout(() => { btn.textContent = '📋 复制'; }, 2000);
   });
-  
-  generatePrompt();
-  document.getElementById('modalOverlay').classList.add('show');
-  
-  // Listen for task input changes
-  document.getElementById('taskInput').addEventListener('input', generatePrompt);
 }
 
-function closeModal() {
-  document.getElementById('modalOverlay').classList.remove('show');
-}
-
-// Generate prompt with full personas
-function generatePrompt() {
-  const task = document.getElementById('taskInput').value.trim();
+// Build prompt with full personas
+function buildPrompt(task) {
   let prompt = '';
 
   if (selected.size === 1 && task === '') {
-    // Single expert, no task
     const slug = [...selected][0];
     const card = document.querySelector(`.card[data-slug="${slug}"]`);
     const title = card ? card.dataset.title : slug;
@@ -2628,7 +2628,6 @@ ${persona}
       prompt = `用${title}帮我...`;
     }
   } else if (selected.size === 1 && task !== '') {
-    // Single expert with task
     const slug = [...selected][0];
     const persona = getPersona(slug);
     if (persona) {
@@ -2643,7 +2642,6 @@ ${task}
       prompt = `帮我完成以下任务：${task}`;
     }
   } else if (task === '') {
-    // Team without task - list everyone with personas
     prompt = `我需要一个专家团队协作：
 
 `;
@@ -2660,7 +2658,6 @@ ${persona || (card ? card.querySelector('.desc').textContent : '')}
     });
     prompt += `请各位专家从各自专业角度协同完成任务。`;
   } else {
-    // Full team mode with task
     prompt = `我需要一个专家团队协作完成以下任务：
 
 【我的需求】
@@ -2682,17 +2679,7 @@ ${persona || (card ? card.querySelector('.desc').textContent : '')}
     prompt += `请各位专家从各自专业角度给出建议，整合成一份可执行的方案。`;
   }
 
-  document.getElementById('generatedPrompt').textContent = prompt;
-}
-
-// Copy prompt
-function copyPrompt() {
-  const prompt = document.getElementById('generatedPrompt').textContent;
-  navigator.clipboard.writeText(prompt).then(() => {
-    const btn = document.getElementById('copyBtn');
-    btn.textContent = '✅ 已复制!';
-    setTimeout(() => { btn.textContent = '📋 复制指令'; }, 2000);
-  });
+  return prompt;
 }
 
 // Search
