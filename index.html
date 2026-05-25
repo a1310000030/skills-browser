@@ -2576,6 +2576,7 @@ function removeFromTeam(slug) {
 function clearTeam() {
   selected.clear();
   document.querySelectorAll('.card.selected').forEach(c => c.classList.remove('selected'));
+  document.getElementById('chatArea').innerHTML = '';
   updateTeamPanel();
 }
 
